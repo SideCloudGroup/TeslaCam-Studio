@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TeslaCam Viewer</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">TCS</div>
+          <div>
+            <h1>TeslaCam Studio</h1>
+            <p id="sessionLabel">&#25171;&#24320; TeslaCam &#25991;&#20214;&#22841;&#24320;&#22987;&#26597;&#30475;</p>
+          </div>
+        </div>
+        <button id="openFolderBtn" class="primary">&#25171;&#24320;&#25991;&#20214;&#22841;</button>
+      </header>
+
+      <section class="video-workspace">
+        <div id="mainStage" class="main-stage">
+          <div class="main-overlay">
+            <div class="timeline-head">
+              <span id="rangeStart">--</span>
+              <span id="currentTimeLabel">--</span>
+              <span id="rangeEnd">--</span>
+            </div>
+            <div class="transport-row">
+              <button id="playPauseBtn" class="play-button" disabled>&#25773;&#25918;</button>
+              <input id="timeline" type="range" min="0" max="0" step="0.05" value="0" disabled>
+            </div>
+            <div class="clip-strip" id="clipStrip"></div>
+          </div>
+        </div>
+        <div id="thumbRail" class="thumb-rail"></div>
+      </section>
+
+      <aside class="telemetry-panel">
+        <div class="panel-heading">
+          <span>Drive Telemetry</span>
+          <strong>Front Clock</strong>
+        </div>
+        <div class="summary">
+          <span id="clockLabel">--:--:--</span>
+          <strong><span id="speedLabel">--</span> km/h</strong>
+        </div>
+
+        <div class="drive-card">
+          <div class="steering-readout">
+            <span class="wheel" id="wheelIcon"></span>
+            <strong id="steeringLabel">-- deg</strong>
+          </div>
+          <div class="blinker-row" aria-label="turn signals">
+            <span id="leftBlinker" class="blinker left">&#9664;</span>
+            <span id="rightBlinker" class="blinker right">&#9654;</span>
+          </div>
+        </div>
+
+        <dl>
+          <div class="pedal-row">
+            <dt>&#27833;&#38376;</dt>
+            <dd>
+              <div class="bar"><span id="pedalBar"></span></div>
+              <strong id="pedalLabel">--%</strong>
+            </dd>
+          </div>
+          <div>
+            <dt>&#21049;&#36710;</dt>
+            <dd><span id="brakeLabel" class="pill">--</span></dd>
+          </div>
+          <div><dt>&#25377;&#20301;</dt><dd id="gearLabel">--</dd></div>
+          <div><dt>Autopilot</dt><dd id="autopilotLabel">--</dd></div>
+          <div><dt>&#20301;&#32622;</dt><dd id="locationLabel">--</dd></div>
+          <div><dt>&#33322;&#21521;</dt><dd id="headingLabel">--</dd></div>
+          <div><dt>&#21152;&#36895;&#24230;</dt><dd id="accelLabel">--</dd></div>
+        </dl>
+
+        <div class="status-box" id="statusBox">&#31561;&#24453;&#25171;&#24320;&#25991;&#20214;&#22841;</div>
+      </aside>
+    </main>
+
+    <template id="videoPanelTemplate">
+      <article class="video-panel">
+        <button class="video-swap" type="button" title="Switch to main view"></button>
+        <div class="video-title"></div>
+        <video playsinline muted></video>
+        <div class="missing"></div>
+      </article>
+    </template>
+
+    <script src="./dashcam-mp4.js"></script>
+    <script src="./renderer.js"></script>
+  </body>
+</html>

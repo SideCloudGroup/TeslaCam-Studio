@@ -1,0 +1,65 @@
+{
+  "name": "teslacam-studio",
+  "version": "2026.6.1",
+  "description": "TeslaCam Studio is a local Electron viewer for Tesla dashcam multi-camera clips and embedded SEI telemetry.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer/dashcam-mp4.js && node --check src/renderer/renderer.js",
+    "dist": "electron-builder --publish never",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:linux": "electron-builder --linux --publish never"
+  },
+  "keywords": [
+    "tesla",
+    "dashcam",
+    "electron"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^32.3.3",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.sidecloudgroup.teslacamstudio",
+    "productName": "TeslaCam Studio",
+    "copyright": "Copyright 2026 TeslaCam Studio",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "dashcam.proto",
+      "README.md",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "category": "public.app-category.video",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    },
+    "linux": {
+      "category": "AudioVideo",
+      "target": [
+        "AppImage"
+      ],
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    }
+  }
+}
