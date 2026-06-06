@@ -1,96 +1,136 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
+<head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TeslaCam Viewer</title>
-    <link rel="stylesheet" href="./styles.css">
-  </head>
-  <body>
-    <main class="app-shell">
-      <header class="topbar">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>TeslaCam Studio</title>
+    <link href="./styles.css" rel="stylesheet">
+</head>
+<body>
+<main class="app-shell">
+    <header class="topbar">
         <div class="brand">
-          <div class="brand-mark">TCS</div>
-          <div>
-            <h1>TeslaCam Studio</h1>
-            <p id="sessionLabel">&#25171;&#24320; TeslaCam &#25991;&#20214;&#22841;&#24320;&#22987;&#26597;&#30475;</p>
-          </div>
-        </div>
-        <button id="openFolderBtn" class="primary">&#25171;&#24320;&#25991;&#20214;&#22841;</button>
-      </header>
-
-      <section class="video-workspace">
-        <div id="mainStage" class="main-stage">
-          <div class="main-overlay">
-            <div class="timeline-head">
-              <span id="rangeStart">--</span>
-              <span id="currentTimeLabel">--</span>
-              <span id="rangeEnd">--</span>
+            <div class="brand-mark">TCS</div>
+            <div>
+                <h1>TeslaCam Studio</h1>
+                <p id="sessionLabel">&#25171;&#24320; TeslaCam
+                    &#25991;&#20214;&#22841;&#24320;&#22987;&#26597;&#30475;</p>
             </div>
-            <div class="transport-row">
-              <button id="playPauseBtn" class="play-button" disabled>&#25773;&#25918;</button>
-              <input id="timeline" type="range" min="0" max="0" step="0.05" value="0" disabled>
-            </div>
-            <div class="clip-strip" id="clipStrip"></div>
-          </div>
         </div>
-        <div id="thumbRail" class="thumb-rail"></div>
-      </section>
+        <button class="primary" id="openFolderBtn">&#25171;&#24320;&#25991;&#20214;&#22841;</button>
+    </header>
 
-      <aside class="telemetry-panel">
+    <section class="video-workspace">
+        <div class="main-stage" id="mainStage">
+            <div class="main-overlay">
+                <div class="timeline-head">
+                    <span id="rangeStart">--</span>
+                    <span id="currentTimeLabel">--</span>
+                    <span id="rangeEnd">--</span>
+                </div>
+                <div class="transport-row">
+                    <button class="play-button" disabled id="playPauseBtn">&#25773;&#25918;</button>
+                    <button class="tool-button" disabled id="screenshotBtn">&#25130;&#22270;</button>
+                    <input disabled id="timeline" max="0" min="0" step="0.05" type="range" value="0">
+                </div>
+                <div class="clip-strip" id="clipStrip"></div>
+            </div>
+        </div>
+        <div class="thumb-rail" id="thumbRail"></div>
+    </section>
+
+    <aside class="telemetry-panel">
         <div class="panel-heading">
-          <span>Drive Telemetry</span>
-          <strong>Front Clock</strong>
+            <span>Drive Telemetry</span>
+            <strong>Front Clock</strong>
         </div>
         <div class="summary">
-          <span id="clockLabel">--:--:--</span>
-          <strong><span id="speedLabel">--</span> km/h</strong>
+            <span id="clockLabel">--:--:--</span>
+            <strong><span id="speedLabel">--</span> km/h</strong>
         </div>
 
         <div class="drive-card">
-          <div class="steering-readout">
-            <span class="wheel" id="wheelIcon"></span>
-            <strong id="steeringLabel">-- deg</strong>
-          </div>
-          <div class="blinker-row" aria-label="turn signals">
-            <span id="leftBlinker" class="blinker left">&#9664;</span>
-            <span id="rightBlinker" class="blinker right">&#9654;</span>
-          </div>
+            <div class="steering-readout">
+                <span class="wheel" id="wheelIcon"></span>
+                <strong id="steeringLabel">-- deg</strong>
+            </div>
+            <div aria-label="turn signals" class="blinker-row">
+                <span class="blinker left" id="leftBlinker">&#9664;</span>
+                <span class="blinker right" id="rightBlinker">&#9654;</span>
+            </div>
         </div>
 
         <dl>
-          <div class="pedal-row">
-            <dt>&#27833;&#38376;</dt>
-            <dd>
-              <div class="bar"><span id="pedalBar"></span></div>
-              <strong id="pedalLabel">--%</strong>
-            </dd>
-          </div>
-          <div>
-            <dt>&#21049;&#36710;</dt>
-            <dd><span id="brakeLabel" class="pill">--</span></dd>
-          </div>
-          <div><dt>&#25377;&#20301;</dt><dd id="gearLabel">--</dd></div>
-          <div><dt>Autopilot</dt><dd id="autopilotLabel">--</dd></div>
-          <div><dt>&#20301;&#32622;</dt><dd id="locationLabel">--</dd></div>
-          <div><dt>&#33322;&#21521;</dt><dd id="headingLabel">--</dd></div>
-          <div><dt>&#21152;&#36895;&#24230;</dt><dd id="accelLabel">--</dd></div>
+            <div class="pedal-row">
+                <dt>&#27833;&#38376;</dt>
+                <dd>
+                    <div class="bar"><span id="pedalBar"></span></div>
+                    <strong id="pedalLabel">--%</strong>
+                </dd>
+            </div>
+            <div>
+                <dt>&#21049;&#36710;</dt>
+                <dd><span class="pill" id="brakeLabel">--</span></dd>
+            </div>
+            <div>
+                <dt>&#25377;&#20301;</dt>
+                <dd id="gearLabel">--</dd>
+            </div>
+            <div>
+                <dt>Autopilot</dt>
+                <dd id="autopilotLabel">--</dd>
+            </div>
+            <div>
+                <dt>&#20301;&#32622;</dt>
+                <dd id="locationLabel">--</dd>
+            </div>
+            <div>
+                <dt>&#33322;&#21521;</dt>
+                <dd id="headingLabel">--</dd>
+            </div>
+            <div>
+                <dt>&#21152;&#36895;&#24230;</dt>
+                <dd id="accelLabel">--</dd>
+            </div>
         </dl>
 
+        <section class="clip-export-card">
+            <div class="panel-heading">
+                <span>Clip Export</span>
+                <strong>Current View</strong>
+            </div>
+            <div class="clip-range">
+                <div><span>In</span><strong id="clipInLabel">--</strong></div>
+                <div><span>Out</span><strong id="clipOutLabel">--</strong></div>
+            </div>
+            <div class="clip-actions">
+                <button disabled id="markInBtn">Mark In</button>
+                <button disabled id="markOutBtn">Mark Out</button>
+                <button class="primary" disabled id="exportClipBtn">Export</button>
+            </div>
+            <div class="export-progress" hidden id="exportProgress">
+                <div class="export-progress-head">
+                    <span id="exportProgressLabel">Exporting</span>
+                    <strong id="exportProgressPercent">0%</strong>
+                </div>
+                <div class="export-progress-track"><span id="exportProgressBar"></span></div>
+            </div>
+        </section>
+
         <div class="status-box" id="statusBox">&#31561;&#24453;&#25171;&#24320;&#25991;&#20214;&#22841;</div>
-      </aside>
-    </main>
+    </aside>
+</main>
 
-    <template id="videoPanelTemplate">
-      <article class="video-panel">
-        <button class="video-swap" type="button" title="Switch to main view"></button>
+<template id="videoPanelTemplate">
+    <article class="video-panel">
+        <button class="video-swap" title="Switch to main view" type="button"></button>
         <div class="video-title"></div>
-        <video playsinline muted></video>
+        <video muted playsinline></video>
         <div class="missing"></div>
-      </article>
-    </template>
+    </article>
+</template>
 
-    <script src="./dashcam-mp4.js"></script>
-    <script src="./renderer.js"></script>
-  </body>
+<script src="./dashcam-mp4.js"></script>
+<script src="./renderer.js"></script>
+</body>
 </html>
