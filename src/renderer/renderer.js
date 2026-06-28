@@ -48,6 +48,7 @@ const els = {
     rangeStart: document.getElementById('rangeStart'),
     rangeEnd: document.getElementById('rangeEnd'),
     currentTimeLabel: document.getElementById('currentTimeLabel'),
+    dateLabel: document.getElementById('dateLabel'),
     clockLabel: document.getElementById('clockLabel'),
     speedLabel: document.getElementById('speedLabel'),
     pedalLabel: document.getElementById('pedalLabel'),
@@ -113,6 +114,16 @@ function formatClock(ms) {
     }).format(new Date(ms));
 }
 
+function formatDate(ms) {
+    if (ms === null || Number.isNaN(ms)) return '--';
+    return new Intl.DateTimeFormat('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        weekday: 'short'
+    }).format(new Date(ms));
+}
+
 function formatDateTime(ms) {
     if (ms === null || Number.isNaN(ms)) return '--';
     return new Intl.DateTimeFormat('zh-CN', {
@@ -142,6 +153,11 @@ function formatFileStamp(ms) {
 
 function setStatus(message) {
     els.statusBox.textContent = message;
+}
+
+function updateSidebarTime(ms) {
+    els.dateLabel.textContent = formatDate(ms);
+    els.clockLabel.textContent = formatClock(ms);
 }
 
 function setExportProgress({percent = 0, stage = 'Exporting'}) {
@@ -465,7 +481,7 @@ function updateTelemetry() {
     const localSeconds = localSecondsForClip(state.currentClip, state.globalSeconds);
     const item = nearestTelemetry(localSeconds);
     const absoluteMs = state.session.startMs + state.globalSeconds * 1000;
-    els.clockLabel.textContent = formatClock(absoluteMs);
+    updateSidebarTime(absoluteMs);
 
     if (!item) {
         els.speedLabel.textContent = '--';
@@ -549,6 +565,7 @@ async function openFolder() {
     els.timeline.value = '0';
     els.rangeStart.textContent = formatClock(session.startMs);
     els.rangeEnd.textContent = formatClock(session.endMs);
+    updateSidebarTime(session.startMs);
     updateClipStrip();
     updateClipExportUi();
 

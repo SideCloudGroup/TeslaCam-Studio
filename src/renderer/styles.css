@@ -319,7 +319,7 @@ video {
 }
 
 .summary {
-    align-items: baseline;
+    align-items: center;
     background: var(--panel-3);
     border: 1px solid var(--line-soft);
     border-radius: 8px;
@@ -328,7 +328,20 @@ video {
     padding: 12px;
 }
 
-.summary span {
+.clock-stack {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.summary .date-label {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.summary .clock-label {
     font-size: 25px;
     font-weight: 800;
     letter-spacing: 0;
@@ -336,6 +349,11 @@ video {
 
 .summary strong {
     font-size: 20px;
+}
+
+.summary .speed-value {
+    font-size: 25px;
+    font-weight: 800;
 }
 
 .drive-card {
