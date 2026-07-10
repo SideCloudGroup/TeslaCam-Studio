@@ -5,7 +5,9 @@ const os = require('os');
 const path = require('path');
 const {pathToFileURL} = require('url');
 const ffmpegStatic = require('ffmpeg-static');
-const {buildExportArgs} = require('./video-export');
+const {buildExportArgs, ffmpegOutputHasFilter} = require('./video-export');
+
+let ffmpegFiltersPromise = null;
 
 const CAMERA_ALIASES = new Map([
     ['front', 'front'],
@@ -82,6 +84,18 @@ function withProgress(args) {
         '-nostats',
         args.at(-1)
     ];
+}
+
+function ffmpegHasFilter(filterName) {
+    if (!ffmpegFiltersPromise) {
+        ffmpegFiltersPromise = runFfmpeg(['-hide_banner', '-filters'])
+            .then(({stdout, stderr}) => `${stdout}\n${stderr}`)
+            .catch((error) => {
+                console.error('Unable to inspect FFmpeg filters', error);
+                return '';
+            });
+    }
+    return ffmpegFiltersPromise.then((filters) => ffmpegOutputHasFilter(filters, filterName));
 }
 
 function sendExportProgress(sender, payload) {
@@ -237,8 +251,12 @@ ipcMain.handle('export-video-clip', async (event, {fileName, segments, cameraTit
     const outputPath = path.join(tempDir, 'export.mp4');
     const totalSeconds = segments.reduce((sum, segment) => sum + segment.durationSeconds, 0);
     try {
-        sendExportProgress(event.sender, {percent: 0, stage: 'Preparing export'});
-        const args = buildExportArgs(segments, cameraTitle, outputPath);
+        const includeWatermark = await ffmpegHasFilter('drawtext');
+        sendExportProgress(event.sender, {
+            percent: 0,
+            stage: includeWatermark ? 'Preparing export' : 'Preparing export (watermark unavailable)'
+        });
+        const args = buildExportArgs(segments, cameraTitle, outputPath, {includeWatermark});
         await runFfmpeg(withProgress(args), (progressSeconds) => {
             const done = Math.min(totalSeconds, Math.max(0, progressSeconds));
             const percent = totalSeconds ? Math.min(96, Math.round((done / totalSeconds) * 96)) : 0;
@@ -252,7 +270,7 @@ ipcMain.handle('export-video-clip', async (event, {fileName, segments, cameraTit
         await fs.copyFile(outputPath, result.filePath);
 
         sendExportProgress(event.sender, {percent: 100, stage: 'Export complete'});
-        return {saved: true, filePath: result.filePath};
+        return {saved: true, filePath: result.filePath, watermarkApplied: includeWatermark};
     } finally {
         await fs.rm(tempDir, {recursive: true, force: true});
     }

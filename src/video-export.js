@@ -20,7 +20,12 @@ function buildWatermarkFilter(cameraTitle, epochSeconds) {
     ].join(',');
 }
 
-function buildExportArgs(segments, cameraTitle, outputPath) {
+function ffmpegOutputHasFilter(output, filterName) {
+    const escapedName = filterName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`^\\s*[.A-Z|]+\\s+${escapedName}\\s`, 'm').test(output);
+}
+
+function buildExportArgs(segments, cameraTitle, outputPath, {includeWatermark = true} = {}) {
     const args = ['-y', '-hide_banner'];
     const filters = [];
     const totalSeconds = segments.reduce((total, segment) => total + Number(segment.durationSeconds), 0);
@@ -31,10 +36,15 @@ function buildExportArgs(segments, cameraTitle, outputPath) {
             '-t', seconds(segment.durationSeconds),
             '-i', segment.filePath
         );
-        filters.push(
-            `[${index}:v:0]trim=duration=${seconds(segment.durationSeconds)},`
-            + `settb=AVTB,setpts=PTS-STARTPTS,${buildWatermarkFilter(cameraTitle, segment.epochSeconds)}[v${index}]`
-        );
+        const segmentFilters = [
+            `trim=duration=${seconds(segment.durationSeconds)}`,
+            'settb=AVTB',
+            'setpts=PTS-STARTPTS'
+        ];
+        if (includeWatermark) {
+            segmentFilters.push(buildWatermarkFilter(cameraTitle, segment.epochSeconds));
+        }
+        filters.push(`[${index}:v:0]${segmentFilters.join(',')}[v${index}]`);
     });
 
     if (segments.length === 1) {
@@ -62,4 +72,4 @@ function buildExportArgs(segments, cameraTitle, outputPath) {
     ];
 }
 
-module.exports = {buildExportArgs};
+module.exports = {buildExportArgs, ffmpegOutputHasFilter};

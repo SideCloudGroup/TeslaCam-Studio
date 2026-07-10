@@ -5,13 +5,27 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const ffmpeg = require('ffmpeg-static');
-const {buildExportArgs} = require('../src/video-export');
+const {buildExportArgs, ffmpegOutputHasFilter} = require('../src/video-export');
 
 function runFfmpeg(args) {
     const result = spawnSync(ffmpeg, args, {encoding: 'utf8'});
     assert.equal(result.status, 0, result.stderr || result.stdout);
     return result;
 }
+
+function ffmpegSupportsFilter(filterName) {
+    const result = runFfmpeg(['-hide_banner', '-filters']);
+    return ffmpegOutputHasFilter(`${result.stdout}\n${result.stderr}`, filterName);
+}
+
+test('watermark filters can be omitted when drawtext is unavailable', () => {
+    assert.equal(ffmpegOutputHasFilter(' T.C drawtext         V->V', 'drawtext'), true);
+    assert.equal(ffmpegOutputHasFilter(' T.. overlay          VV->V', 'drawtext'), false);
+    const args = buildExportArgs([
+        {filePath: 'input.mp4', startSeconds: 0, durationSeconds: 1, epochSeconds: 1_788_000_000}
+    ], 'Front', 'output.mp4', {includeWatermark: false});
+    assert.doesNotMatch(args[args.indexOf('-filter_complex') + 1], /drawtext/);
+});
 
 test('cross-file export resets timestamps and keeps a constant playback rate', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'teslacam-export-test-'));
@@ -35,7 +49,8 @@ test('cross-file export resets timestamps and keeps a constant playback rate', (
             {filePath: first, startSeconds: 0.25, durationSeconds: 1.25, epochSeconds: 1_788_000_000},
             {filePath: second, startSeconds: 0.5, durationSeconds: 1.75, epochSeconds: 1_788_000_060}
         ];
-        runFfmpeg(buildExportArgs(segments, 'Front', output));
+        const includeWatermark = ffmpegSupportsFilter('drawtext');
+        runFfmpeg(buildExportArgs(segments, 'Front', output, {includeWatermark}));
 
         const probe = runFfmpeg(['-hide_banner', '-i', output, '-f', 'null', '-']);
         const durationMatch = probe.stderr.match(/Duration:\s+(\d+):(\d+):(\d+(?:\.\d+)?)/);

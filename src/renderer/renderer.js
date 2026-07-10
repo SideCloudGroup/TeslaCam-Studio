@@ -440,7 +440,10 @@ async function exportMainVideoClip() {
         const result = await window.teslaCam.exportVideoClip({fileName, segments, cameraTitle});
         if (result.saved) {
             setExportProgress({percent: 100, stage: 'Export complete'});
-            setStatus(`Video clip saved: ${result.filePath}`);
+            const watermarkNote = result.watermarkApplied === false
+                ? ' (saved without watermark: bundled FFmpeg does not support text rendering)'
+                : '';
+            setStatus(`Video clip saved${watermarkNote}: ${result.filePath}`);
         } else {
             resetExportProgress();
             setStatus('Video clip export canceled');
