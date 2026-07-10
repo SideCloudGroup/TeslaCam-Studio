@@ -8,6 +8,7 @@ const cameraDefs = [
 ];
 
 const thumbOrder = ['left_repeater', 'left_pillar', 'rear', 'right_pillar', 'right_repeater', 'front'];
+const CLIP_DURATION_MS = 60_000;
 const panels = {};
 const videos = {};
 const missing = {};
@@ -219,7 +220,7 @@ function clipsInRange(startSeconds, endSeconds) {
     const endMs = state.session.startMs + endSeconds * 1000;
     return state.session.clips.filter((clip, index) => {
         const next = state.session.clips[index + 1];
-        const clipEndMs = next?.startMs ?? clip.startMs + 60_000;
+        const clipEndMs = Math.min(clip.startMs + CLIP_DURATION_MS, next?.startMs ?? Infinity);
         return clip.startMs < endMs && clipEndMs > startMs;
     });
 }
@@ -257,11 +258,13 @@ function drawWatermark(ctx, canvas, text, cameraTitle) {
 function findClipByGlobalSeconds(globalSeconds) {
     if (!state.session) return null;
     const timeMs = state.session.startMs + globalSeconds * 1000;
-    return state.session.clips.find((clip, index) => {
+    const activeClip = state.session.clips.find((clip, index) => {
         const next = state.session.clips[index + 1];
-        const end = next?.startMs ?? clip.startMs + 60_000;
+        const end = Math.min(clip.startMs + CLIP_DURATION_MS, next?.startMs ?? Infinity);
         return timeMs >= clip.startMs && timeMs < end;
-    }) ?? state.session.clips.at(-1);
+    });
+    if (activeClip) return activeClip;
+    return state.session.clips.find((clip) => clip.startMs > timeMs) ?? state.session.clips.at(-1);
 }
 
 function localSecondsForClip(clip, globalSeconds) {
@@ -278,7 +281,10 @@ function loadClip(clip) {
         const file = clip.cameras[id];
         const video = videos[id];
         if (file) {
-            if (video.src !== file.url) video.src = file.url;
+            if (video.src !== file.url) {
+                video.src = file.url;
+                video.load();
+            }
             video.style.visibility = 'visible';
             missing[id].hidden = true;
         } else {
@@ -312,9 +318,25 @@ function loadClip(clip) {
 function seekVideos(localSeconds) {
     cameraDefs.forEach(({id}) => {
         const video = videos[id];
-        if (!video.src || Number.isNaN(video.duration)) return;
+        if (!video.src || video.readyState < HTMLMediaElement.HAVE_METADATA || !Number.isFinite(video.duration)) return;
         const target = Math.min(Math.max(localSeconds, 0), Math.max(video.duration - 0.05, 0));
         if (Math.abs(video.currentTime - target) > 0.35) video.currentTime = target;
+    });
+}
+
+function isCurrentClipVideo(camera, video) {
+    const file = state.currentClip?.cameras[camera];
+    return Boolean(file && video.currentSrc === file.url);
+}
+
+function playLoadedVideos() {
+    if (!state.playing || !state.currentClip) return;
+    cameraDefs.forEach(({id}) => {
+        const video = videos[id];
+        if (!isCurrentClipVideo(id, video) || video.readyState < HTMLMediaElement.HAVE_METADATA) return;
+        video.play().catch((error) => {
+            if (error?.name !== 'AbortError') console.error(`Unable to play ${id} video`, error);
+        });
     });
 }
 
@@ -325,7 +347,11 @@ function setPlaying(playing) {
         const video = videos[id];
         if (!video.src) return;
         if (playing) {
-            video.play().catch(() => setPlaying(false));
+            if (isCurrentClipVideo(id, video) && video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+                video.play().catch((error) => {
+                    if (error?.name !== 'AbortError') console.error(`Unable to play ${id} video`, error);
+                });
+            }
         } else {
             video.pause();
         }
@@ -395,16 +421,19 @@ async function exportMainVideoClip() {
         setStatus('Exporting MP4 with ffmpeg...');
         const segments = rangeClips.map((clip) => {
             const segmentStartMs = Math.max(clip.startMs, state.session.startMs + state.clipInSeconds * 1000);
-            const segmentEndMs = Math.min(clip.startMs + 60_000, state.session.startMs + state.clipOutSeconds * 1000);
+            const clipIndex = state.session.clips.indexOf(clip);
+            const next = state.session.clips[clipIndex + 1];
+            const clipEndMs = Math.min(clip.startMs + CLIP_DURATION_MS, next?.startMs ?? Infinity);
+            const segmentEndMs = Math.min(clipEndMs, state.session.startMs + state.clipOutSeconds * 1000);
             const localStartSeconds = Math.max(0, (segmentStartMs - clip.startMs) / 1000);
-            const durationSeconds = Math.max(0.05, (segmentEndMs - segmentStartMs) / 1000);
+            const durationSeconds = (segmentEndMs - segmentStartMs) / 1000;
             return {
                 filePath: clip.cameras[camera].path,
                 startSeconds: localStartSeconds,
                 durationSeconds,
                 epochSeconds: segmentStartMs / 1000
             };
-        });
+        }).filter((segment) => segment.durationSeconds > 0);
         const startMs = state.session.startMs + state.clipInSeconds * 1000;
         const endMs = state.session.startMs + state.clipOutSeconds * 1000;
         const fileName = `TeslaCam-Studio_${formatFileStamp(startMs)}_${formatFileStamp(endMs)}_${camera}.mp4`;
@@ -601,21 +630,45 @@ els.timeline.addEventListener('change', () => {
     if (state.playing) setPlaying(true);
 });
 
-videos.front.addEventListener('timeupdate', () => {
+cameraDefs.forEach(({id}) => {
+    videos[id].addEventListener('loadedmetadata', () => {
+        const video = videos[id];
+        if (!isCurrentClipVideo(id, video)) return;
+        seekVideos(localSecondsForClip(state.currentClip, state.globalSeconds));
+        playLoadedVideos();
+    });
+});
+
+function playbackClockCamera() {
+    if (!state.currentClip) return null;
+    if (state.currentClip.cameras.front) return 'front';
+    return cameraDefs.find(({id}) => state.currentClip.cameras[id])?.id ?? null;
+}
+
+function handlePlaybackTimeUpdate(camera) {
     if (!state.session || !state.currentClip || state.seeking) return;
-    state.globalSeconds = (state.currentClip.startMs - state.session.startMs) / 1000 + videos.front.currentTime;
+    const video = videos[camera];
+    if (camera !== playbackClockCamera() || !isCurrentClipVideo(camera, video)) return;
+    state.globalSeconds = (state.currentClip.startMs - state.session.startMs) / 1000 + video.currentTime;
     els.timeline.value = String(state.globalSeconds);
     els.currentTimeLabel.textContent = formatClock(state.session.startMs + state.globalSeconds * 1000);
     updateTelemetry();
-});
+}
 
-videos.front.addEventListener('ended', () => {
+function handlePlaybackEnded(camera) {
     if (!state.session || !state.currentClip) return;
-    const nextSeconds = (state.currentClip.startMs - state.session.startMs) / 1000 + 60;
-    if (nextSeconds < state.session.durationMs / 1000) {
-        jumpTo(nextSeconds);
-        if (state.playing) setPlaying(true);
-    } else {
+    const video = videos[camera];
+    if (camera !== playbackClockCamera() || !isCurrentClipVideo(camera, video)) return;
+    const currentIndex = state.session.clips.findIndex((clip) => clip.key === state.currentClip.key);
+    const nextClip = state.session.clips[currentIndex + 1];
+    if (!nextClip) {
         setPlaying(false);
+        return;
     }
+    jumpTo((nextClip.startMs - state.session.startMs) / 1000);
+}
+
+cameraDefs.forEach(({id}) => {
+    videos[id].addEventListener('timeupdate', () => handlePlaybackTimeUpdate(id));
+    videos[id].addEventListener('ended', () => handlePlaybackEnded(id));
 });

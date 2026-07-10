@@ -1,11 +1,12 @@
 {
   "name": "teslacam-studio",
-  "version": "2026.6.2",
+  "version": "2026.7.1",
   "description": "TeslaCam Studio is a local Electron viewer for Tesla dashcam multi-camera clips and embedded SEI telemetry.",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer/dashcam-mp4.js && node --check src/renderer/renderer.js",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/video-export.js && node --check src/renderer/dashcam-mp4.js && node --check src/renderer/renderer.js",
+    "test": "node --test test/video-export.test.js",
     "dist": "electron-builder --publish never",
     "dist:win": "electron-builder --win --publish never",
     "dist:mac": "electron-builder --mac --publish never",

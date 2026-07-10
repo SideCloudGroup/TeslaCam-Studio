@@ -60,6 +60,9 @@ jobs:
       - name: Static checks
         run: npm run check
 
+      - name: Cross-file export regression test
+        run: npm test
+
       - name: Build desktop app
         run: ${{ matrix.script }}
         env:

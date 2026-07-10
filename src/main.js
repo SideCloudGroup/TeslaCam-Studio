@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const {pathToFileURL} = require('url');
 const ffmpegStatic = require('ffmpeg-static');
+const {buildExportArgs} = require('./video-export');
 
 const CAMERA_ALIASES = new Map([
     ['front', 'front'],
@@ -85,37 +86,6 @@ function withProgress(args) {
 
 function sendExportProgress(sender, payload) {
     if (!sender.isDestroyed()) sender.send('export-video-progress', payload);
-}
-
-function seconds(value) {
-    return Number(value).toFixed(3);
-}
-
-function escapeDrawtextText(text) {
-    return String(text)
-        .replaceAll('\\', '\\\\')
-        .replaceAll(':', '\\:')
-        .replaceAll("'", "\\'")
-        .replaceAll('%', '\\%')
-        .replaceAll(',', '\\,');
-}
-
-function buildWatermarkFilter(cameraTitle, epochSeconds) {
-    const title = escapeDrawtextText(cameraTitle);
-    const timeText = `%{pts\\:localtime\\:${Math.floor(epochSeconds)}\\:%Y-%m-%d %H\\\\\\:%M\\\\\\:%S}`;
-    return [
-        `drawtext=text='${title}':x=40:y=h-96:fontsize=18:fontcolor=white@0.84:shadowcolor=black@0.85:shadowx=2:shadowy=2`,
-        `drawtext=text='${timeText}':x=40:y=h-66:fontsize=34:fontcolor=white:shadowcolor=black@0.9:shadowx=3:shadowy=3`
-    ].join(',');
-}
-
-function escapeConcatPath(filePath) {
-    return filePath.replaceAll('\\', '/').replaceAll("'", "'\\''");
-}
-
-async function writeConcatList(filePath, segmentPaths) {
-    const content = segmentPaths.map((segmentPath) => `file '${escapeConcatPath(segmentPath)}'`).join('\n');
-    await fs.writeFile(filePath, content, 'utf8');
 }
 
 function createWindow() {
@@ -259,60 +229,27 @@ ipcMain.handle('export-video-clip', async (event, {fileName, segments, cameraTit
 
     if (result.canceled || !result.filePath) return {saved: false};
 
+    if (!Array.isArray(segments) || !segments.length) {
+        throw new Error('No video segments were selected for export');
+    }
+
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'teslacam-studio-'));
-    const segmentPaths = [];
+    const outputPath = path.join(tempDir, 'export.mp4');
     const totalSeconds = segments.reduce((sum, segment) => sum + segment.durationSeconds, 0);
-    let completedSeconds = 0;
     try {
         sendExportProgress(event.sender, {percent: 0, stage: 'Preparing export'});
-        for (let i = 0; i < segments.length; i += 1) {
-            const segment = segments[i];
-            const outputPath = path.join(tempDir, `segment-${String(i).padStart(4, '0')}.mp4`);
-            segmentPaths.push(outputPath);
-            const args = [
-                '-y',
-                '-hide_banner',
-                '-ss', seconds(segment.startSeconds),
-                '-t', seconds(segment.durationSeconds),
-                '-i', segment.filePath,
-                '-vf', buildWatermarkFilter(cameraTitle, segment.epochSeconds),
-                '-an',
-                '-c:v', 'libx264',
-                '-preset', 'medium',
-                '-crf', '23',
-                '-pix_fmt', 'yuv420p',
-                '-movflags', '+faststart',
-                outputPath
-            ];
-            await runFfmpeg(withProgress(args), (segmentProgressSeconds) => {
-                const done = completedSeconds + Math.min(segment.durationSeconds, Math.max(0, segmentProgressSeconds));
-                const percent = totalSeconds ? Math.min(96, Math.round((done / totalSeconds) * 96)) : 0;
-                sendExportProgress(event.sender, {
-                    percent,
-                    stage: `Encoding ${i + 1}/${segments.length}`
-                });
+        const args = buildExportArgs(segments, cameraTitle, outputPath);
+        await runFfmpeg(withProgress(args), (progressSeconds) => {
+            const done = Math.min(totalSeconds, Math.max(0, progressSeconds));
+            const percent = totalSeconds ? Math.min(96, Math.round((done / totalSeconds) * 96)) : 0;
+            sendExportProgress(event.sender, {
+                percent,
+                stage: `Encoding ${segments.length} segment${segments.length === 1 ? '' : 's'}`
             });
-            completedSeconds += segment.durationSeconds;
-        }
+        });
 
-        if (segmentPaths.length === 1) {
-            sendExportProgress(event.sender, {percent: 98, stage: 'Saving MP4'});
-            await fs.copyFile(segmentPaths[0], result.filePath);
-        } else {
-            sendExportProgress(event.sender, {percent: 98, stage: 'Merging segments'});
-            const concatListPath = path.join(tempDir, 'concat.txt');
-            await writeConcatList(concatListPath, segmentPaths);
-            await runFfmpeg([
-                '-y',
-                '-hide_banner',
-                '-f', 'concat',
-                '-safe', '0',
-                '-i', concatListPath,
-                '-c', 'copy',
-                '-movflags', '+faststart',
-                result.filePath
-            ]);
-        }
+        sendExportProgress(event.sender, {percent: 98, stage: 'Saving MP4'});
+        await fs.copyFile(outputPath, result.filePath);
 
         sendExportProgress(event.sender, {percent: 100, stage: 'Export complete'});
         return {saved: true, filePath: result.filePath};
