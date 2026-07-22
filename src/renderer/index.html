@@ -17,7 +17,13 @@
                     &#25991;&#20214;&#22841;&#24320;&#22987;&#26597;&#30475;</p>
             </div>
         </div>
-        <button class="primary" id="openFolderBtn">&#25171;&#24320;&#25991;&#20214;&#22841;</button>
+        <div class="topbar-actions">
+            <label class="day-picker" hidden id="dayPicker">
+                <span>&#26085;&#26399;</span>
+                <select aria-label="&#36873;&#25321;&#39044;&#35272;&#26085;&#26399;" id="daySelect"></select>
+            </label>
+            <button class="primary" id="openFolderBtn">&#25171;&#24320;&#25991;&#20214;&#22841;</button>
+        </div>
     </header>
 
     <section class="video-workspace">
@@ -29,7 +35,11 @@
                     <span id="rangeEnd">--</span>
                 </div>
                 <div class="transport-row">
+                    <button aria-label="&#21518;&#36864; 15 &#31186;" class="seek-button" disabled id="skipBackBtn"
+                            title="&#21518;&#36864; 15 &#31186;">&#8630; 15s</button>
                     <button class="play-button" disabled id="playPauseBtn">&#25773;&#25918;</button>
+                    <button aria-label="&#24555;&#36827; 15 &#31186;" class="seek-button" disabled id="skipForwardBtn"
+                            title="&#24555;&#36827; 15 &#31186;">15s &#8631;</button>
                     <button class="tool-button" disabled id="screenshotBtn">&#25130;&#22270;</button>
                     <input disabled id="timeline" max="0" min="0" step="0.05" type="range" value="0">
                 </div>

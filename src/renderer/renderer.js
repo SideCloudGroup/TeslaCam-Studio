@@ -14,6 +14,8 @@ const videos = {};
 const missing = {};
 
 const state = {
+    librarySession: null,
+    daySessions: [],
     session: null,
     currentClip: null,
     selectedCamera: 'front',
@@ -32,6 +34,10 @@ const els = {
     thumbRail: document.getElementById('thumbRail'),
     panelTemplate: document.getElementById('videoPanelTemplate'),
     openFolderBtn: document.getElementById('openFolderBtn'),
+    dayPicker: document.getElementById('dayPicker'),
+    daySelect: document.getElementById('daySelect'),
+    skipBackBtn: document.getElementById('skipBackBtn'),
+    skipForwardBtn: document.getElementById('skipForwardBtn'),
     playPauseBtn: document.getElementById('playPauseBtn'),
     screenshotBtn: document.getElementById('screenshotBtn'),
     markInBtn: document.getElementById('markInBtn'),
@@ -225,11 +231,36 @@ function clipsInRange(startSeconds, endSeconds) {
     });
 }
 
+function buildDaySessions(session) {
+    const grouped = new Map();
+    for (const clip of session.clips) {
+        const dayKey = clip.key.slice(0, 10);
+        if (!grouped.has(dayKey)) grouped.set(dayKey, []);
+        grouped.get(dayKey).push(clip);
+    }
+
+    return [...grouped.entries()].map(([dayKey, clips]) => {
+        const startMs = clips[0].startMs;
+        const endMs = clips.at(-1).startMs + CLIP_DURATION_MS;
+        return {
+            ...session,
+            dayKey,
+            clips,
+            startMs,
+            endMs,
+            durationMs: endMs - startMs
+        };
+    });
+}
+
 function setClipExporting(exporting) {
     state.exportingClip = exporting;
     els.playPauseBtn.disabled = exporting || !state.session?.clips.length;
     els.screenshotBtn.disabled = exporting || !state.session?.clips.length;
     els.timeline.disabled = exporting || !state.session?.clips.length;
+    els.skipBackBtn.disabled = exporting || !state.session?.clips.length;
+    els.skipForwardBtn.disabled = exporting || !state.session?.clips.length;
+    els.daySelect.disabled = exporting;
     els.openFolderBtn.disabled = exporting;
     updateClipExportUi();
 }
@@ -572,27 +603,41 @@ function jumpTo(seconds) {
     renderTime();
 }
 
-async function openFolder() {
-    const folder = await window.teslaCam.chooseFolder();
-    if (!folder) return;
+function skipBy(seconds) {
+    if (!state.session || state.exportingClip) return;
+    jumpTo(state.globalSeconds + seconds);
+}
+
+function updateDayPicker() {
+    els.daySelect.innerHTML = '';
+    for (const day of state.daySessions) {
+        const option = document.createElement('option');
+        option.value = day.dayKey;
+        option.textContent = `${formatDate(day.startMs)} · ${day.clips.length} 个片段`;
+        els.daySelect.appendChild(option);
+    }
+    els.dayPicker.hidden = state.daySessions.length < 2;
+}
+
+function activateDay(dayKey) {
+    const session = state.daySessions.find((day) => day.dayKey === dayKey);
+    if (!session) return;
+
     setPlaying(false);
-    setStatus('Scanning folder...');
-    const session = await window.teslaCam.scanFolder(folder);
     state.session = session;
     state.currentClip = null;
     state.globalSeconds = 0;
     state.telemetry = [];
+    state.telemetryClipKey = null;
     state.clipInSeconds = null;
     state.clipOutSeconds = null;
-    resetExportProgress();
 
-    els.sessionLabel.textContent = `${session.folderName} | ${session.clips.length} clips`;
-    els.playPauseBtn.disabled = session.clips.length === 0;
-    els.screenshotBtn.disabled = session.clips.length === 0;
-    els.markInBtn.disabled = session.clips.length === 0;
-    els.markOutBtn.disabled = session.clips.length === 0;
-    els.exportClipBtn.disabled = true;
-    els.timeline.disabled = session.clips.length === 0;
+    els.daySelect.value = session.dayKey;
+    els.playPauseBtn.disabled = false;
+    els.skipBackBtn.disabled = false;
+    els.skipForwardBtn.disabled = false;
+    els.screenshotBtn.disabled = false;
+    els.timeline.disabled = false;
     els.timeline.max = String(session.durationMs / 1000);
     els.timeline.value = '0';
     els.rangeStart.textContent = formatClock(session.startMs);
@@ -600,14 +645,52 @@ async function openFolder() {
     updateSidebarTime(session.startMs);
     updateClipStrip();
     updateClipExportUi();
+    setStatus(`正在预览 ${formatDate(session.startMs)}，共 ${session.clips.length} 个片段`);
+    renderTime();
+}
+
+async function openFolder() {
+    const folder = await window.teslaCam.chooseFolder();
+    if (!folder) return;
+    setPlaying(false);
+    setStatus('Scanning folder...');
+    const session = await window.teslaCam.scanFolder(folder);
+    state.librarySession = session;
+    state.daySessions = buildDaySessions(session);
+    state.session = null;
+    state.currentClip = null;
+    state.globalSeconds = 0;
+    state.telemetry = [];
+    state.clipInSeconds = null;
+    state.clipOutSeconds = null;
+    resetExportProgress();
+
+    const dayCount = state.daySessions.length;
+    els.sessionLabel.textContent = `${session.folderName} | ${session.clips.length} 个片段 | ${dayCount} 天`;
+    els.playPauseBtn.disabled = session.clips.length === 0;
+    els.skipBackBtn.disabled = session.clips.length === 0;
+    els.skipForwardBtn.disabled = session.clips.length === 0;
+    els.screenshotBtn.disabled = session.clips.length === 0;
+    els.markInBtn.disabled = session.clips.length === 0;
+    els.markOutBtn.disabled = session.clips.length === 0;
+    els.exportClipBtn.disabled = true;
+    els.timeline.disabled = session.clips.length === 0;
+    els.timeline.value = '0';
+    updateDayPicker();
 
     if (!session.clips.length) {
+        els.dayPicker.hidden = true;
+        els.rangeStart.textContent = '--';
+        els.rangeEnd.textContent = '--';
+        els.currentTimeLabel.textContent = '--';
+        updateClipStrip();
+        updateClipExportUi();
         setStatus('No TeslaCam MP4 files were recognized');
         return;
     }
 
-    setStatus(`Scanned ${session.clips.length} clips, ${session.unrecognized.length} MP4 files unrecognized`);
-    renderTime();
+    activateDay(state.daySessions[0].dayKey);
+    setStatus(`已扫描 ${session.clips.length} 个片段，按 ${dayCount} 天整理；${session.unrecognized.length} 个 MP4 文件未识别`);
 }
 
 createPanels();
@@ -619,6 +702,9 @@ window.teslaCam.onExportVideoProgress((payload) => {
 });
 
 els.openFolderBtn.addEventListener('click', openFolder);
+els.daySelect.addEventListener('change', (event) => activateDay(event.target.value));
+els.skipBackBtn.addEventListener('click', () => skipBy(-15));
+els.skipForwardBtn.addEventListener('click', () => skipBy(15));
 els.playPauseBtn.addEventListener('click', () => setPlaying(!state.playing));
 els.screenshotBtn.addEventListener('click', exportMainScreenshot);
 els.markInBtn.addEventListener('click', markClipIn);

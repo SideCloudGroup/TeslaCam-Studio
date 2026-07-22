@@ -119,6 +119,34 @@ h1 {
     margin-top: 4px;
 }
 
+.topbar-actions {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+}
+
+.day-picker {
+    align-items: center;
+    color: var(--muted);
+    display: flex;
+    font-size: 12px;
+    gap: 7px;
+}
+
+.day-picker[hidden] {
+    display: none;
+}
+
+.day-picker select {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    font: inherit;
+    height: 34px;
+    padding: 0 28px 0 10px;
+}
+
 .video-workspace {
     display: grid;
     gap: 10px;
@@ -251,7 +279,7 @@ video {
     align-items: center;
     display: grid;
     gap: 10px;
-    grid-template-columns: 72px 72px 1fr;
+    grid-template-columns: 76px 72px 76px 72px minmax(100px, 1fr);
 }
 
 .play-button {
@@ -266,6 +294,15 @@ video {
     border-color: rgba(255, 255, 255, 0.16);
     color: #fff;
     font-weight: 700;
+}
+
+.seek-button {
+    background: rgba(17, 19, 21, 0.86);
+    border-color: rgba(255, 255, 255, 0.16);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 800;
+    padding: 0 8px;
 }
 
 #timeline {
