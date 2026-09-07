@@ -73,6 +73,25 @@
             </div>
         </div>
 
+        <div class="g-meter-card">
+            <div class="g-meter-head">
+                <span>G-Force</span>
+                <strong id="gMeterValue">-- G</strong>
+            </div>
+            <div class="g-meter-plot">
+                <span class="g-axis g-axis-n">加速</span>
+                <span class="g-axis g-axis-s">刹车</span>
+                <span class="g-axis g-axis-w">左</span>
+                <span class="g-axis g-axis-e">右</span>
+                <canvas id="gMeter" height="168" width="168"></canvas>
+            </div>
+            <div class="g-meter-readout">
+                <span>横向 <strong id="gLatLabel">--</strong></span>
+                <span>纵向 <strong id="gLonLabel">--</strong></span>
+                <span>峰值 <strong id="gPeakLabel">--</strong></span>
+            </div>
+        </div>
+
         <dl>
             <div class="pedal-row">
                 <dt>&#27833;&#38376;</dt>
@@ -101,10 +120,6 @@
                 <dt>&#33322;&#21521;</dt>
                 <dd id="headingLabel">--</dd>
             </div>
-            <div>
-                <dt>&#21152;&#36895;&#24230;</dt>
-                <dd id="accelLabel">--</dd>
-            </div>
         </dl>
 
         <section class="clip-export-card">
@@ -116,6 +131,16 @@
                 <div><span>In</span><strong id="clipInLabel">--</strong></div>
                 <div><span>Out</span><strong id="clipOutLabel">--</strong></div>
             </div>
+            <label class="export-option" for="exportTelemetryChk">
+                <span class="switch">
+                    <input checked id="exportTelemetryChk" type="checkbox">
+                    <span class="track"></span>
+                </span>
+                <span class="export-option-copy">
+                    <strong>叠加行驶信息</strong>
+                    <small>时速、转向灯、油门开度、刹车、方向盘角度</small>
+                </span>
+            </label>
             <div class="clip-actions">
                 <button disabled id="markInBtn">Mark In</button>
                 <button disabled id="markOutBtn">Mark Out</button>

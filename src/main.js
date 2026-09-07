@@ -6,6 +6,13 @@ const path = require('path');
 const {pathToFileURL} = require('url');
 const ffmpegStatic = require('ffmpeg-static');
 const {buildExportArgs, ffmpegOutputHasFilter} = require('./video-export');
+const DashcamMp4 = require('./renderer/dashcam-mp4');
+const {
+    buildHudAss,
+    collectHudSamples,
+    defaultFontName,
+    defaultFontsDir
+} = require('./telemetry-hud');
 
 let ffmpegFiltersPromise = null;
 
@@ -232,7 +239,45 @@ ipcMain.handle('save-screenshot', async (_event, {fileName, pngBase64}) => {
     return {saved: true, filePath: result.filePath};
 });
 
-ipcMain.handle('export-video-clip', async (event, {fileName, segments, cameraTitle}) => {
+async function readTelemetryItems(filePath, cache) {
+    if (!filePath) return [];
+    if (cache.has(filePath)) return cache.get(filePath);
+    try {
+        const buffer = await fs.readFile(filePath);
+        const items = DashcamMp4.readTelemetry(buffer);
+        cache.set(filePath, items);
+        return items;
+    } catch (error) {
+        console.error('Unable to read telemetry', filePath, error);
+        cache.set(filePath, []);
+        return [];
+    }
+}
+
+async function buildExportHud(segments, totalSeconds, onProgress) {
+    const cache = new Map();
+    const telemetrySegments = [];
+    for (const [index, segment] of segments.entries()) {
+        onProgress?.({
+            percent: Math.round(((index + 1) / segments.length) * 8),
+            stage: 'Reading telemetry'
+        });
+        telemetrySegments.push({
+            startSeconds: segment.startSeconds,
+            durationSeconds: segment.durationSeconds,
+            items: await readTelemetryItems(segment.telemetryFilePath, cache)
+        });
+    }
+
+    const samples = collectHudSamples(telemetrySegments);
+    const assText = buildHudAss(samples, {
+        durationSeconds: totalSeconds,
+        fontName: defaultFontName()
+    });
+    return {assText, sampleCount: samples.length};
+}
+
+ipcMain.handle('export-video-clip', async (event, {fileName, segments, cameraTitle, includeTelemetry = false}) => {
     const result = await dialog.showSaveDialog({
         title: 'Save video clip',
         defaultPath: fileName,
@@ -252,14 +297,37 @@ ipcMain.handle('export-video-clip', async (event, {fileName, segments, cameraTit
     const totalSeconds = segments.reduce((sum, segment) => sum + segment.durationSeconds, 0);
     try {
         const includeWatermark = await ffmpegHasFilter('drawtext');
+        const canOverlayHud = includeTelemetry && await ffmpegHasFilter('ass');
         sendExportProgress(event.sender, {
             percent: 0,
             stage: includeWatermark ? 'Preparing export' : 'Preparing export (watermark unavailable)'
         });
-        const args = buildExportArgs(segments, cameraTitle, outputPath, {includeWatermark});
+
+        let telemetryAssPath = null;
+        let telemetryApplied = false;
+        if (canOverlayHud) {
+            const {assText, sampleCount} = await buildExportHud(segments, totalSeconds, (payload) => {
+                sendExportProgress(event.sender, payload);
+            });
+            if (assText && sampleCount) {
+                telemetryAssPath = path.join(tempDir, 'hud.ass');
+                await fs.writeFile(telemetryAssPath, assText, 'utf8');
+                telemetryApplied = true;
+            }
+        }
+
+        sendExportProgress(event.sender, {
+            percent: 8,
+            stage: telemetryApplied ? 'Encoding with drive HUD' : 'Encoding'
+        });
+        const args = buildExportArgs(segments, cameraTitle, outputPath, {
+            includeWatermark,
+            telemetryAssPath,
+            fontsDir: telemetryAssPath ? defaultFontsDir() : null
+        });
         await runFfmpeg(withProgress(args), (progressSeconds) => {
             const done = Math.min(totalSeconds, Math.max(0, progressSeconds));
-            const percent = totalSeconds ? Math.min(96, Math.round((done / totalSeconds) * 96)) : 0;
+            const percent = totalSeconds ? Math.min(96, 8 + Math.round((done / totalSeconds) * 88)) : 8;
             sendExportProgress(event.sender, {
                 percent,
                 stage: `Encoding ${segments.length} segment${segments.length === 1 ? '' : 's'}`
@@ -270,7 +338,12 @@ ipcMain.handle('export-video-clip', async (event, {fileName, segments, cameraTit
         await fs.copyFile(outputPath, result.filePath);
 
         sendExportProgress(event.sender, {percent: 100, stage: 'Export complete'});
-        return {saved: true, filePath: result.filePath, watermarkApplied: includeWatermark};
+        return {
+            saved: true,
+            filePath: result.filePath,
+            watermarkApplied: includeWatermark,
+            telemetryApplied
+        };
     } finally {
         await fs.rm(tempDir, {recursive: true, force: true});
     }

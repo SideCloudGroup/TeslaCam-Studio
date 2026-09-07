@@ -23,6 +23,8 @@ const state = {
     playing: false,
     telemetry: [],
     telemetryClipKey: null,
+    gMapping: null,
+    gPeak: 0,
     seeking: false,
     clipInSeconds: null,
     clipOutSeconds: null,
@@ -43,6 +45,7 @@ const els = {
     markInBtn: document.getElementById('markInBtn'),
     markOutBtn: document.getElementById('markOutBtn'),
     exportClipBtn: document.getElementById('exportClipBtn'),
+    exportTelemetryChk: document.getElementById('exportTelemetryChk'),
     clipInLabel: document.getElementById('clipInLabel'),
     clipOutLabel: document.getElementById('clipOutLabel'),
     exportProgress: document.getElementById('exportProgress'),
@@ -69,12 +72,19 @@ const els = {
     autopilotLabel: document.getElementById('autopilotLabel'),
     locationLabel: document.getElementById('locationLabel'),
     headingLabel: document.getElementById('headingLabel'),
-    accelLabel: document.getElementById('accelLabel'),
+    gMeter: document.getElementById('gMeter'),
+    gMeterValue: document.getElementById('gMeterValue'),
+    gLatLabel: document.getElementById('gLatLabel'),
+    gLonLabel: document.getElementById('gLonLabel'),
+    gPeakLabel: document.getElementById('gPeakLabel'),
     statusBox: document.getElementById('statusBox')
 };
 
 const gearNames = ['P', 'D', 'R', 'N'];
 const autopilotNames = ['None', 'Self driving', 'Autosteer', 'TACC'];
+const G_TO_MPS2 = 9.80665;
+const G_METER_SCALE = 1.5;
+const G_TRAIL_MS = 2800;
 
 function createPanels() {
     for (const def of cameraDefs) {
@@ -191,6 +201,7 @@ function updateClipExportUi() {
         || state.clipInSeconds === null
         || state.clipOutSeconds === null
         || state.clipOutSeconds <= state.clipInSeconds;
+    els.exportTelemetryChk.disabled = state.exportingClip;
 
     els.clipInLabel.textContent = state.clipInSeconds === null
         ? '--'
@@ -307,6 +318,8 @@ function loadClip(clip) {
     state.currentClip = clip;
     state.telemetry = [];
     state.telemetryClipKey = null;
+    state.gMapping = null;
+    state.gPeak = 0;
 
     cameraDefs.forEach(({id}) => {
         const file = clip.cameras[id];
@@ -334,6 +347,12 @@ function loadClip(clip) {
             .then((items) => {
                 if (state.telemetryClipKey !== clip.key) return;
                 state.telemetry = items;
+                state.gMapping = inferGMapping(items);
+                state.gPeak = 0;
+                for (const sample of items) {
+                    const point = gPointFromItem(sample);
+                    if (point) state.gPeak = Math.max(state.gPeak, Math.hypot(point.lat, point.lon));
+                }
                 setStatus(items.length ? `Read ${items.length} front telemetry frames` : 'No SEI telemetry found in front video');
                 updateTelemetry();
             })
@@ -342,6 +361,7 @@ function loadClip(clip) {
                 if (state.telemetryClipKey === clip.key) setStatus(`Telemetry read failed: ${error.message}`);
             });
     } else {
+        resetGMeter();
         setStatus('Current clip has no front video, telemetry is unavailable');
     }
 }
@@ -462,19 +482,31 @@ async function exportMainVideoClip() {
                 filePath: clip.cameras[camera].path,
                 startSeconds: localStartSeconds,
                 durationSeconds,
-                epochSeconds: segmentStartMs / 1000
+                epochSeconds: segmentStartMs / 1000,
+                telemetryFilePath: clip.cameras.front?.path ?? null
             };
         }).filter((segment) => segment.durationSeconds > 0);
         const startMs = state.session.startMs + state.clipInSeconds * 1000;
         const endMs = state.session.startMs + state.clipOutSeconds * 1000;
         const fileName = `TeslaCam-Studio_${formatFileStamp(startMs)}_${formatFileStamp(endMs)}_${camera}.mp4`;
-        const result = await window.teslaCam.exportVideoClip({fileName, segments, cameraTitle});
+        const includeTelemetry = els.exportTelemetryChk.checked;
+        const result = await window.teslaCam.exportVideoClip({
+            fileName,
+            segments,
+            cameraTitle,
+            includeTelemetry
+        });
         if (result.saved) {
             setExportProgress({percent: 100, stage: 'Export complete'});
-            const watermarkNote = result.watermarkApplied === false
-                ? ' (saved without watermark: bundled FFmpeg does not support text rendering)'
-                : '';
-            setStatus(`Video clip saved${watermarkNote}: ${result.filePath}`);
+            const notes = [];
+            if (result.watermarkApplied === false) {
+                notes.push('saved without watermark: bundled FFmpeg does not support text rendering');
+            }
+            if (includeTelemetry && result.telemetryApplied === false) {
+                notes.push('drive overlay skipped: no SEI telemetry or FFmpeg cannot render subtitles');
+            }
+            const noteText = notes.length ? ` (${notes.join('; ')})` : '';
+            setStatus(`Video clip saved${noteText}: ${result.filePath}`);
         } else {
             resetExportProgress();
             setStatus('Video clip export canceled');
@@ -539,6 +571,249 @@ function normalizePedalPercent(value) {
     return 100;
 }
 
+function formatG(value) {
+    if (value === null || value === undefined || Number.isNaN(value)) return '--';
+    const signed = value >= 0 ? `+${value.toFixed(2)}` : value.toFixed(2);
+    return `${signed}G`;
+}
+
+function inferGMapping(items) {
+    let absXBrake = 0;
+    let absYBrake = 0;
+    let brakeCount = 0;
+
+    for (const item of items) {
+        const ax = item.linear_acceleration_mps2_x;
+        const ay = item.linear_acceleration_mps2_y;
+        if (!Number.isFinite(ax) || !Number.isFinite(ay) || !item.brake_applied) continue;
+        absXBrake += Math.abs(ax);
+        absYBrake += Math.abs(ay);
+        brakeCount += 1;
+        if (brakeCount >= 100) break;
+    }
+
+    const longAxis = brakeCount >= 8 && absYBrake > absXBrake * 1.35 ? 'y' : 'x';
+    const latAxis = longAxis === 'x' ? 'y' : 'x';
+    let brakeLong = 0;
+    let nBrake = 0;
+    let steerCorr = 0;
+    let nSteer = 0;
+
+    for (const item of items) {
+        const ax = item.linear_acceleration_mps2_x;
+        const ay = item.linear_acceleration_mps2_y;
+        if (!Number.isFinite(ax) || !Number.isFinite(ay)) continue;
+        const longRaw = longAxis === 'x' ? ax : ay;
+        const latRaw = latAxis === 'x' ? ax : ay;
+        if (item.brake_applied) {
+            brakeLong += longRaw;
+            nBrake += 1;
+        }
+        const steer = item.steering_wheel_angle;
+        if (Number.isFinite(steer) && Math.abs(steer) > 18) {
+            steerCorr += Math.sign(steer) * latRaw;
+            nSteer += 1;
+        }
+    }
+
+    return {
+        longAxis,
+        latAxis,
+        longSign: nBrake >= 8 && brakeLong / nBrake > 0.6 ? -1 : 1,
+        latSign: nSteer >= 8 ? (steerCorr < 0 ? -1 : 1) : (latAxis === 'y' ? -1 : 1)
+    };
+}
+
+function gPointFromItem(item, mapping = state.gMapping) {
+    if (!item) return null;
+    const ax = item.linear_acceleration_mps2_x;
+    const ay = item.linear_acceleration_mps2_y;
+    if (!Number.isFinite(ax) || !Number.isFinite(ay)) return null;
+    const axes = mapping || {longAxis: 'x', latAxis: 'y', longSign: 1, latSign: -1};
+    const longRaw = axes.longAxis === 'x' ? ax : ay;
+    const latRaw = axes.latAxis === 'x' ? ax : ay;
+    return {
+        lat: (latRaw / G_TO_MPS2) * axes.latSign,
+        lon: (longRaw / G_TO_MPS2) * axes.longSign
+    };
+}
+
+function collectGTrail(timeMs) {
+    if (!state.telemetry.length) return [];
+    const startMs = timeMs - G_TRAIL_MS;
+    let lo = 0;
+    let hi = state.telemetry.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (state.telemetry[mid].timeMs < startMs) lo = mid + 1;
+        else hi = mid;
+    }
+
+    const points = [];
+    let end = lo;
+    while (end < state.telemetry.length && state.telemetry[end].timeMs <= timeMs) end += 1;
+    const stride = Math.max(1, Math.ceil(Math.max(1, end - lo) / 140));
+    for (let i = lo; i < end; i += stride) {
+        const point = gPointFromItem(state.telemetry[i]);
+        if (point) points.push(point);
+    }
+    const current = gPointFromItem(nearestTelemetry(timeMs / 1000));
+    const last = points.at(-1);
+    if (current && (!last || last.lat !== current.lat || last.lon !== current.lon)) {
+        points.push(current);
+    }
+    return points;
+}
+
+function gMeterDotColor(point) {
+    if (!point) return '#f4f6f8';
+    if (point.lon <= -0.18) return '#f2553d';
+    if (point.lon >= 0.18) return '#58d27d';
+    if (Math.abs(point.lat) >= 0.35) return '#f3c748';
+    return '#2aa8d8';
+}
+
+function toGMeterXY(point, cx, cy, radius) {
+    const mag = Math.hypot(point.lat, point.lon);
+    const scale = mag > G_METER_SCALE ? G_METER_SCALE / mag : 1;
+    return {
+        x: cx + (point.lat * scale / G_METER_SCALE) * radius,
+        y: cy - (point.lon * scale / G_METER_SCALE) * radius
+    };
+}
+
+function prepareGMeterContext() {
+    const canvas = els.gMeter;
+    if (!canvas) return null;
+    const dpr = window.devicePixelRatio || 1;
+    const css = canvas.clientWidth || 168;
+    const width = Math.round(css * dpr);
+    const height = Math.round(css * dpr);
+    if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+    }
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return {ctx, size: css};
+}
+
+function drawGMeterGrid(ctx, cx, cy, radius) {
+    ctx.save();
+    const disc = ctx.createRadialGradient(cx, cy, 8, cx, cy, radius);
+    disc.addColorStop(0, 'rgba(42, 168, 216, 0.10)');
+    disc.addColorStop(1, 'rgba(8, 10, 12, 0.72)');
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fillStyle = disc;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.10)';
+    ctx.lineWidth = 1;
+    for (const g of [0.5, 1, 1.5]) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius * (g / G_METER_SCALE), 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(cx - radius, cy);
+    ctx.lineTo(cx + radius, cy);
+    ctx.moveTo(cx, cy - radius);
+    ctx.lineTo(cx, cy + radius);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(157, 167, 177, 0.82)';
+    ctx.font = '700 9px Segoe UI, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('1.0', cx + 4, cy - radius * (1 / G_METER_SCALE) - 2);
+    ctx.restore();
+}
+
+function drawGMeter(localSeconds, currentPoint) {
+    const prepared = prepareGMeterContext();
+    if (!prepared) return;
+    const {ctx, size} = prepared;
+    const cx = size / 2;
+    const cy = size / 2;
+    const radius = size / 2 - 18;
+    ctx.clearRect(0, 0, size, size);
+    drawGMeterGrid(ctx, cx, cy, radius);
+
+    const trail = collectGTrail(localSeconds * 1000);
+    if (trail.length > 1) {
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        for (let i = 1; i < trail.length; i += 1) {
+            const from = toGMeterXY(trail[i - 1], cx, cy, radius);
+            const to = toGMeterXY(trail[i], cx, cy, radius);
+            const t = i / (trail.length - 1);
+            ctx.beginPath();
+            ctx.moveTo(from.x, from.y);
+            ctx.lineTo(to.x, to.y);
+            ctx.strokeStyle = `rgba(42, 168, 216, ${0.08 + t * 0.42})`;
+            ctx.lineWidth = 1.4 + t * 1.4;
+            ctx.stroke();
+        }
+    }
+
+    for (let i = 0; i < trail.length; i += 1) {
+        const t = trail.length === 1 ? 1 : i / (trail.length - 1);
+        const pos = toGMeterXY(trail[i], cx, cy, radius);
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 1.6 + t * 1.2, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(180, 230, 245, ${0.08 + t * 0.35})`;
+        ctx.fill();
+    }
+
+    if (!currentPoint) return;
+    const pos = toGMeterXY(currentPoint, cx, cy, radius);
+    const color = gMeterDotColor(currentPoint);
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, 9, 0, Math.PI * 2);
+    ctx.fillStyle = `${color}33`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, 5.2, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, 2.1, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+}
+
+function resetGMeter() {
+    els.gMeterValue.textContent = '-- G';
+    els.gLatLabel.textContent = '--';
+    els.gLonLabel.textContent = '--';
+    els.gPeakLabel.textContent = '--';
+    drawGMeter(0, null);
+}
+
+function updateGMeter(item, localSeconds) {
+    const point = gPointFromItem(item);
+    if (!point) {
+        resetGMeter();
+        return;
+    }
+    const mag = Math.hypot(point.lat, point.lon);
+    els.gMeterValue.textContent = `${mag.toFixed(2)} G`;
+    els.gLatLabel.textContent = formatG(point.lat);
+    els.gLonLabel.textContent = formatG(point.lon);
+    els.gPeakLabel.textContent = `${Math.max(state.gPeak || 0, mag).toFixed(2)}G`;
+    drawGMeter(localSeconds, point);
+}
+
 function updateTelemetry() {
     if (!state.session || !state.currentClip) return;
     const localSeconds = localSecondsForClip(state.currentClip, state.globalSeconds);
@@ -558,7 +833,7 @@ function updateTelemetry() {
         els.autopilotLabel.textContent = '--';
         els.locationLabel.textContent = '--';
         els.headingLabel.textContent = '--';
-        els.accelLabel.textContent = '--';
+        resetGMeter();
         return;
     }
 
@@ -578,10 +853,7 @@ function updateTelemetry() {
         ? `${item.latitude_deg.toFixed(6)}, ${item.longitude_deg.toFixed(6)}`
         : '--';
     els.headingLabel.textContent = item.heading_deg === undefined ? '--' : `${Math.round(item.heading_deg)} deg`;
-    const acc = [item.linear_acceleration_mps2_x, item.linear_acceleration_mps2_y, item.linear_acceleration_mps2_z];
-    els.accelLabel.textContent = acc.every((v) => v !== undefined)
-        ? acc.map((v) => v.toFixed(2)).join(' / ')
-        : '--';
+    updateGMeter(item, localSeconds);
 }
 
 function renderTime() {
@@ -629,6 +901,8 @@ function activateDay(dayKey) {
     state.globalSeconds = 0;
     state.telemetry = [];
     state.telemetryClipKey = null;
+    state.gMapping = null;
+    state.gPeak = 0;
     state.clipInSeconds = null;
     state.clipOutSeconds = null;
 
@@ -661,6 +935,8 @@ async function openFolder() {
     state.currentClip = null;
     state.globalSeconds = 0;
     state.telemetry = [];
+    state.gMapping = null;
+    state.gPeak = 0;
     state.clipInSeconds = null;
     state.clipOutSeconds = null;
     resetExportProgress();
@@ -694,6 +970,7 @@ async function openFolder() {
 }
 
 createPanels();
+resetGMeter();
 
 window.teslaCam.onExportVideoProgress((payload) => {
     if (!state.exportingClip) return;

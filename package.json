@@ -5,7 +5,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/video-export.js && node --check src/renderer/dashcam-mp4.js && node --check src/renderer/renderer.js",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/video-export.js && node --check src/telemetry-hud.js && node --check src/renderer/dashcam-mp4.js && node --check src/renderer/renderer.js",
     "test": "node --test test/video-export.test.js",
     "dist": "electron-builder --publish never",
     "dist:win": "electron-builder --win --publish never",

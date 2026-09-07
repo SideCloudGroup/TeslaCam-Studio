@@ -337,6 +337,7 @@ video {
     flex-direction: column;
     gap: 12px;
     min-height: 0;
+    overflow: auto;
     padding: 14px 16px;
 }
 
@@ -467,6 +468,91 @@ video {
     color: var(--warn);
 }
 
+.g-meter-card {
+    background: var(--panel-3);
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    display: grid;
+    gap: 8px;
+    padding: 10px 12px 12px;
+}
+
+.g-meter-head {
+    align-items: baseline;
+    color: var(--muted);
+    display: flex;
+    font-size: 12px;
+    justify-content: space-between;
+    text-transform: uppercase;
+}
+
+.g-meter-head strong {
+    color: var(--text);
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.g-meter-plot {
+    height: 168px;
+    margin: 0 auto;
+    position: relative;
+    width: 168px;
+}
+
+.g-meter-plot canvas {
+    display: block;
+    height: 168px;
+    width: 168px;
+}
+
+.g-axis {
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    pointer-events: none;
+    position: absolute;
+}
+
+.g-axis-n {
+    left: 50%;
+    top: 2px;
+    transform: translateX(-50%);
+}
+
+.g-axis-s {
+    bottom: 2px;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.g-axis-w {
+    left: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.g-axis-e {
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.g-meter-readout {
+    color: var(--muted);
+    display: grid;
+    font-size: 11px;
+    gap: 6px;
+    grid-template-columns: 1fr 1fr 1fr;
+}
+
+.g-meter-readout strong {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
 dl {
     display: grid;
     gap: 8px;
@@ -576,6 +662,88 @@ dd {
 .clip-range strong {
     font-size: 13px;
     font-variant-numeric: tabular-nums;
+}
+
+.export-option {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    gap: 10px;
+    padding: 9px 10px;
+}
+
+.export-option:has(input:disabled) {
+    cursor: default;
+    opacity: 0.55;
+}
+
+.export-option-copy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.export-option-copy strong {
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.export-option-copy small {
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.switch {
+    display: inline-flex;
+    flex-shrink: 0;
+    height: 22px;
+    position: relative;
+    width: 38px;
+}
+
+.switch input {
+    cursor: inherit;
+    height: 100%;
+    left: 0;
+    margin: 0;
+    opacity: 0;
+    position: absolute;
+    top: 0;
+    width: 100%;
+    z-index: 1;
+}
+
+.switch .track {
+    background: #2a3138;
+    border-radius: 99px;
+    display: block;
+    height: 100%;
+    position: relative;
+    width: 100%;
+}
+
+.switch .track::after {
+    background: #f4f6f8;
+    border-radius: 50%;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.28);
+    content: "";
+    height: 16px;
+    left: 3px;
+    position: absolute;
+    top: 3px;
+    transition: transform 140ms ease;
+    width: 16px;
+}
+
+.switch input:checked + .track {
+    background: linear-gradient(180deg, #3bbcde, #1f8fb8);
+}
+
+.switch input:checked + .track::after {
+    transform: translateX(16px);
 }
 
 .clip-actions {

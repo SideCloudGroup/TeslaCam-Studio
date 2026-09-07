@@ -25,10 +25,28 @@ function ffmpegOutputHasFilter(output, filterName) {
     return new RegExp(`^\\s*[.A-Z|]+\\s+${escapedName}\\s`, 'm').test(output);
 }
 
-function buildExportArgs(segments, cameraTitle, outputPath, {includeWatermark = true} = {}) {
+function escapeFilterPath(filePath) {
+    return String(filePath)
+        .replaceAll('\\', '/')
+        .replaceAll("'", "\\'")
+        .replaceAll(':', '\\:');
+}
+
+function buildAssFilter(assPath, fontsDir) {
+    const parts = [`filename='${escapeFilterPath(assPath)}'`];
+    if (fontsDir) parts.push(`fontsdir='${escapeFilterPath(fontsDir)}'`);
+    return `ass=${parts.join(':')}`;
+}
+
+function buildExportArgs(segments, cameraTitle, outputPath, {
+    includeWatermark = true,
+    telemetryAssPath = null,
+    fontsDir = null
+} = {}) {
     const args = ['-y', '-hide_banner'];
     const filters = [];
     const totalSeconds = segments.reduce((total, segment) => total + Number(segment.durationSeconds), 0);
+    const hudFilter = telemetryAssPath ? buildAssFilter(telemetryAssPath, fontsDir) : null;
 
     segments.forEach((segment, index) => {
         args.push(
@@ -48,10 +66,15 @@ function buildExportArgs(segments, cameraTitle, outputPath, {includeWatermark = 
     });
 
     if (segments.length === 1) {
-        filters.push('[v0]null[outv]');
+        filters.push(hudFilter ? `[v0]${hudFilter}[outv]` : '[v0]null[outv]');
     } else {
         const inputs = segments.map((_segment, index) => `[v${index}]`).join('');
-        filters.push(`${inputs}concat=n=${segments.length}:v=1:a=0,setpts=PTS-STARTPTS[outv]`);
+        if (hudFilter) {
+            filters.push(`${inputs}concat=n=${segments.length}:v=1:a=0,setpts=PTS-STARTPTS[joined]`);
+            filters.push(`[joined]${hudFilter}[outv]`);
+        } else {
+            filters.push(`${inputs}concat=n=${segments.length}:v=1:a=0,setpts=PTS-STARTPTS[outv]`);
+        }
     }
 
     return [
@@ -72,4 +95,4 @@ function buildExportArgs(segments, cameraTitle, outputPath, {includeWatermark = 
     ];
 }
 
-module.exports = {buildExportArgs, ffmpegOutputHasFilter};
+module.exports = {buildExportArgs, ffmpegOutputHasFilter, escapeFilterPath};

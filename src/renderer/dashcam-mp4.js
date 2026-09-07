@@ -254,8 +254,16 @@ const DashcamMp4 = (() => {
         return best;
     }
 
+    function asDataView(buffer) {
+        if (buffer instanceof ArrayBuffer) return new DataView(buffer);
+        if (ArrayBuffer.isView(buffer)) {
+            return new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        }
+        throw new Error('Unsupported telemetry buffer type');
+    }
+
     function readTelemetry(buffer) {
-        const view = new DataView(buffer);
+        const view = asDataView(buffer);
         const durations = getDurationsMs(view);
         const telemetry = [];
         let frameIndex = 0;
@@ -289,3 +297,7 @@ const DashcamMp4 = (() => {
 
     return {readTelemetry};
 })();
+
+if (typeof module === 'object' && module.exports) {
+    module.exports = DashcamMp4;
+}
