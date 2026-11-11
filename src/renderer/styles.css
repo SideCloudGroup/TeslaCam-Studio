@@ -137,6 +137,34 @@ h1 {
     display: none;
 }
 
+.sentry-card {
+    display: grid;
+    gap: 8px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    margin-bottom: 12px;
+}
+
+.sentry-card[hidden] {
+    display: none;
+}
+
+.sentry-card label, .sentry-card small {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.sentry-card select {
+    width: 100%;
+    min-width: 0;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px;
+}
+
 .day-picker select {
     background: var(--panel-2);
     border: 1px solid var(--line);

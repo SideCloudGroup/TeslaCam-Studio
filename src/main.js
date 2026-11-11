@@ -15,6 +15,8 @@ const {
 } = require('./telemetry-hud');
 
 let ffmpegFiltersPromise = null;
+let lastOpenDirectory;
+let lastSaveDirectory;
 
 const CAMERA_ALIASES = new Map([
     ['front', 'front'],
@@ -126,13 +128,26 @@ function createWindow() {
     win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
-async function walk(dir, out = []) {
+async function walk(dir, out = [], events = []) {
     const entries = await fs.readdir(dir, {withFileTypes: true});
     await Promise.all(entries.map(async (entry) => {
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
-            await walk(fullPath, out);
+            await walk(fullPath, out, events);
             return;
+        }
+
+        if (entry.isFile() && /^events?\.json$/i.test(entry.name)) {
+            try {
+                const data = JSON.parse((await fs.readFile(fullPath, 'utf8')).replace(/^\uFEFF/, ''));
+                for (const item of Array.isArray(data) ? data : [data]) {
+                    const timestampMs = typeof item?.timestamp === 'string' ? Date.parse(item.timestamp) : NaN;
+                    if (!Number.isFinite(timestampMs) || typeof item.reason !== 'string' || !item.reason.startsWith('sentry_')) continue;
+                    events.push({timestampMs, camera: String(item.camera ?? ''), folderPath: dir});
+                }
+            } catch (error) {
+                console.warn('Unable to read event metadata', fullPath, error.message);
+            }
         }
 
         if (entry.isFile() && entry.name.toLowerCase().endsWith('.mp4')) {
@@ -205,16 +220,24 @@ function buildSession(files) {
 ipcMain.handle('choose-folder', async () => {
     const result = await dialog.showOpenDialog({
         title: 'Open TeslaCam folder',
+        defaultPath: lastOpenDirectory || app.getPath('videos'),
         properties: ['openDirectory']
     });
 
     if (result.canceled || !result.filePaths[0]) return null;
+    lastOpenDirectory = result.filePaths[0];
     return result.filePaths[0];
 });
 
 ipcMain.handle('scan-folder', async (_event, folderPath) => {
-    const files = await walk(folderPath);
+    const events = [];
+    const files = await walk(folderPath, [], events);
     const session = buildSession(files);
+    session.events = events.sort((a, b) => a.timestampMs - b.timestampMs).map((event) => ({
+        ...event,
+        clipKeys: session.clips.filter((clip) => Object.values(clip.cameras)
+            .some((file) => path.dirname(file.path) === event.folderPath)).map((clip) => clip.key)
+    })).filter((event) => event.clipKeys.length);
     session.folderName = path.basename(folderPath);
     session.folderPath = folderPath;
     return session;
@@ -228,13 +251,14 @@ ipcMain.handle('read-file-buffer', async (_event, filePath) => {
 ipcMain.handle('save-screenshot', async (_event, {fileName, pngBase64}) => {
     const result = await dialog.showSaveDialog({
         title: 'Save screenshot',
-        defaultPath: fileName,
+        defaultPath: path.join(lastSaveDirectory || app.getPath('videos'), path.basename(fileName)),
         filters: [
             {name: 'PNG Image', extensions: ['png']}
         ]
     });
 
     if (result.canceled || !result.filePath) return {saved: false};
+    lastSaveDirectory = path.dirname(result.filePath);
     await fs.writeFile(result.filePath, Buffer.from(pngBase64, 'base64'));
     return {saved: true, filePath: result.filePath};
 });
@@ -280,13 +304,14 @@ async function buildExportHud(segments, totalSeconds, onProgress) {
 ipcMain.handle('export-video-clip', async (event, {fileName, segments, cameraTitle, includeTelemetry = false}) => {
     const result = await dialog.showSaveDialog({
         title: 'Save video clip',
-        defaultPath: fileName,
+        defaultPath: path.join(lastSaveDirectory || app.getPath('videos'), path.basename(fileName)),
         filters: [
             {name: 'MP4 Video', extensions: ['mp4']}
         ]
     });
 
     if (result.canceled || !result.filePath) return {saved: false};
+    lastSaveDirectory = path.dirname(result.filePath);
 
     if (!Array.isArray(segments) || !segments.length) {
         throw new Error('No video segments were selected for export');

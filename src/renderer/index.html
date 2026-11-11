@@ -62,6 +62,16 @@
             <strong><span class="speed-value" id="speedLabel">--</span> km/h</strong>
         </div>
 
+        <section class="sentry-card" hidden id="sentryCard">
+            <div class="panel-heading"><span>哨兵事件</span></div>
+            <label for="sentryEventSelect">事件时间</label>
+            <select id="sentryEventSelect" aria-label="选择哨兵事件"></select>
+            <label for="sentryCameraSelect">触发视角（可修正）</label>
+            <select id="sentryCameraSelect" aria-label="触发事件的摄像头"></select>
+            <button id="jumpToEventBtn">跳到事件前 5 秒</button>
+            <small id="sentryEventHint" aria-live="polite"></small>
+        </section>
+
         <div class="drive-card">
             <div class="steering-readout">
                 <span class="wheel" id="wheelIcon"></span>

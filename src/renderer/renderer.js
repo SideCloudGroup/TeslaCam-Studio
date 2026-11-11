@@ -9,6 +9,11 @@ const cameraDefs = [
 
 const thumbOrder = ['left_repeater', 'left_pillar', 'rear', 'right_pillar', 'right_repeater', 'front'];
 const CLIP_DURATION_MS = 60_000;
+// Defaults are hints: firmware/hardware can differ. Corrections stay in memory.
+const sentryCameraMapping = new Map(Object.entries({
+    0: 'front', 1: 'left_repeater', 2: 'right_repeater', 3: 'rear',
+    4: 'front', 5: 'left_pillar', 6: 'right_pillar', back: 'rear'
+}));
 const panels = {};
 const videos = {};
 const missing = {};
@@ -38,6 +43,11 @@ const els = {
     openFolderBtn: document.getElementById('openFolderBtn'),
     dayPicker: document.getElementById('dayPicker'),
     daySelect: document.getElementById('daySelect'),
+    sentryCard: document.getElementById('sentryCard'),
+    sentryEventSelect: document.getElementById('sentryEventSelect'),
+    sentryCameraSelect: document.getElementById('sentryCameraSelect'),
+    jumpToEventBtn: document.getElementById('jumpToEventBtn'),
+    sentryEventHint: document.getElementById('sentryEventHint'),
     skipBackBtn: document.getElementById('skipBackBtn'),
     skipForwardBtn: document.getElementById('skipForwardBtn'),
     playPauseBtn: document.getElementById('playPauseBtn'),
@@ -257,11 +267,69 @@ function buildDaySessions(session) {
             ...session,
             dayKey,
             clips,
+            events: (session.events || []).filter((event) => event.timestampMs >= startMs
+                && event.timestampMs < endMs && clips.some((clip) => event.clipKeys.includes(clip.key))),
             startMs,
             endMs,
             durationMs: endMs - startMs
         };
     });
+}
+
+function selectedSentryEvent() {
+    return state.session?.events?.[Number(els.sentryEventSelect.value)] ?? null;
+}
+
+function sentryCamera(event) {
+    return sentryCameraMapping.get(event.camera)
+        || cameraDefs.find(({id}) => id === event.camera)?.id || '';
+}
+
+function updateSentrySelection() {
+    const event = selectedSentryEvent();
+    els.sentryCameraSelect.value = event ? sentryCamera(event) : '';
+    els.sentryEventHint.textContent = event
+        ? `摄像头编号：${event.camera || '未知'}；跳转后暂停，点击播放继续。` : '';
+}
+
+function updateSentryUi() {
+    const events = state.session?.events || [];
+    els.sentryCard.hidden = !events.length;
+    els.sentryEventSelect.innerHTML = '';
+    events.forEach((event, index) => {
+        const option = document.createElement('option');
+        option.value = String(index);
+        option.textContent = formatDateTime(event.timestampMs);
+        els.sentryEventSelect.appendChild(option);
+    });
+    els.sentryCameraSelect.innerHTML = '';
+    for (const def of [{id: '', title: '未知（保留当前视角）'}, ...cameraDefs]) {
+        const option = document.createElement('option');
+        option.value = def.id;
+        option.textContent = def.title;
+        els.sentryCameraSelect.appendChild(option);
+    }
+    updateSentrySelection();
+}
+
+function jumpToSentryEvent() {
+    const event = selectedSentryEvent();
+    if (!event || state.exportingClip) return;
+    const clips = state.session.clips.filter((clip) => event.clipKeys.includes(clip.key));
+    if (!clips.length) return;
+    const requestedMs = event.timestampMs - 5000;
+    const clip = clips.find((item) => requestedMs >= item.startMs && requestedMs < item.startMs + CLIP_DURATION_MS)
+        || clips.find((item) => item.startMs > requestedMs) || clips.at(-1);
+    const targetMs = Math.max(clip.startMs, Math.min(requestedMs, clip.startMs + CLIP_DURATION_MS - 50));
+    setPlaying(false);
+    const camera = sentryCamera(event);
+    if (camera) selectCamera(camera);
+    jumpTo((targetMs - state.session.startMs) / 1000);
+    const messages = [`事件 ${formatClock(event.timestampMs)} → ${formatClock(targetMs)}`];
+    if (targetMs !== requestedMs) messages.push('目标时间无录像，已定位到可用片段');
+    if (!camera) messages.push('触发视角未知，请选择视角');
+    else if (!clip.cameras[camera]) messages.push('该片段缺少触发视角录像');
+    els.sentryEventHint.textContent = messages.join('；');
 }
 
 function setClipExporting(exporting) {
@@ -273,6 +341,9 @@ function setClipExporting(exporting) {
     els.skipForwardBtn.disabled = exporting || !state.session?.clips.length;
     els.daySelect.disabled = exporting;
     els.openFolderBtn.disabled = exporting;
+    els.jumpToEventBtn.disabled = exporting;
+    els.sentryEventSelect.disabled = exporting;
+    els.sentryCameraSelect.disabled = exporting;
     updateClipExportUi();
 }
 
@@ -369,9 +440,9 @@ function loadClip(clip) {
 function seekVideos(localSeconds) {
     cameraDefs.forEach(({id}) => {
         const video = videos[id];
-        if (!video.src || video.readyState < HTMLMediaElement.HAVE_METADATA || !Number.isFinite(video.duration)) return;
+        if (!isCurrentClipVideo(id, video) || video.readyState < HTMLMediaElement.HAVE_METADATA || !Number.isFinite(video.duration)) return;
         const target = Math.min(Math.max(localSeconds, 0), Math.max(video.duration - 0.05, 0));
-        if (Math.abs(video.currentTime - target) > 0.35) video.currentTime = target;
+        if (Math.abs(video.currentTime - target) > 0.01) video.currentTime = target;
     });
 }
 
@@ -920,6 +991,7 @@ function activateDay(dayKey) {
     updateClipStrip();
     updateClipExportUi();
     setStatus(`正在预览 ${formatDate(session.startMs)}，共 ${session.clips.length} 个片段`);
+    updateSentryUi();
     renderTime();
 }
 
@@ -953,6 +1025,7 @@ async function openFolder() {
     els.timeline.disabled = session.clips.length === 0;
     els.timeline.value = '0';
     updateDayPicker();
+    updateSentryUi();
 
     if (!session.clips.length) {
         els.dayPicker.hidden = true;
@@ -980,6 +1053,14 @@ window.teslaCam.onExportVideoProgress((payload) => {
 
 els.openFolderBtn.addEventListener('click', openFolder);
 els.daySelect.addEventListener('change', (event) => activateDay(event.target.value));
+els.sentryEventSelect.addEventListener('change', updateSentrySelection);
+els.jumpToEventBtn.addEventListener('click', jumpToSentryEvent);
+els.sentryCameraSelect.addEventListener('change', () => {
+    const event = selectedSentryEvent();
+    if (!event) return;
+    sentryCameraMapping.set(event.camera, els.sentryCameraSelect.value);
+    if (els.sentryCameraSelect.value) selectCamera(els.sentryCameraSelect.value);
+});
 els.skipBackBtn.addEventListener('click', () => skipBy(-15));
 els.skipForwardBtn.addEventListener('click', () => skipBy(15));
 els.playPauseBtn.addEventListener('click', () => setPlaying(!state.playing));
@@ -1012,8 +1093,9 @@ function playbackClockCamera() {
 }
 
 function handlePlaybackTimeUpdate(camera) {
-    if (!state.session || !state.currentClip || state.seeking) return;
+    if (!state.session || !state.currentClip || state.seeking || !state.playing) return;
     const video = videos[camera];
+    if (video.seeking) return;
     if (camera !== playbackClockCamera() || !isCurrentClipVideo(camera, video)) return;
     state.globalSeconds = (state.currentClip.startMs - state.session.startMs) / 1000 + video.currentTime;
     els.timeline.value = String(state.globalSeconds);
